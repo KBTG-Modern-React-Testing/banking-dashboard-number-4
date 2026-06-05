@@ -1,16 +1,39 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Balance, Transaction } from '@/app/types';
 import AccountBalance from './AccountBalance';
 import TransactionList from './TransactionList';
 import TransferForm from './TransferForm';
 import ThemeToggle from './ThemeToggle';
+import { useQueries, useQuery } from '@tanstack/react-query';
 
 export default function Dashboard() {
   const [balance, setBalance] = useState<Balance | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // const balanceQuery = useQuery({
+  //   queryKey: ['balance'],
+  //   queryFn: async () => {
+  //     const res = await fetch('/api/balance');
+  //     return res.json() as Promise<Balance>;
+  //   },
+  // });
+
+  // const transactionsQuery = useQuery({
+  //   queryKey: ['transactions'],
+  //   queryFn: async () => {
+  //     const res = await fetch('/api/transactions');
+  //     const data = await res.json();
+  //     return data.transactions as Transaction[];
+  //   },
+  // });
+
+  // const isLoading = useMemo(() => balanceQuery.isLoading || transactionsQuery.isLoading, [
+  //   balanceQuery.isLoading,
+  //   transactionsQuery.isLoading,
+  // ]);
 
   useEffect(() => {
     async function fetchData() {

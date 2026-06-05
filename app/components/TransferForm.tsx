@@ -1,77 +1,96 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
 import { Transaction } from '@/app/types';
 
 interface TransferFormProps {
   onTransactionAdded: (transaction: Transaction) => void;
 }
 
-interface FormErrors {
-  amount?: string;
-  recipient?: string;
-}
+const transferFormSchema = z.object({
+  amount: z
+    .number({ error: 'Please enter a valid amount greater than zero.' })
+    .positive('Please enter a valid amount greater than zero.'),
+  recipient: z
+    .string()
+    .trim()
+    .min(1, 'Recipient name is required.'),
+  description: z.string(),
+});
+
+type TransferFormValues = z.infer<typeof transferFormSchema>;
 
 export default function TransferForm({ onTransactionAdded }: TransferFormProps) {
-  const [amount, setAmount] = useState('');
-  const [recipient, setRecipient] = useState('');
-  const [description, setDescription] = useState('');
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function validate(): FormErrors {
-    const errs: FormErrors = {};
-    const num = parseFloat(amount);
-    if (!amount || isNaN(num) || num <= 0) {
-      errs.amount = 'Please enter a valid amount greater than zero.';
-    }
-    if (!recipient.trim()) {
-      errs.recipient = 'Recipient name is required.';
-    }
-    return errs;
-  }
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    clearErrors,
+    formState: { errors, isSubmitting },
+  } = useForm<TransferFormValues>({
+    resolver: zodResolver(transferFormSchema),
+    mode: 'onSubmit',
+    reValidateMode: 'onChange',
+    defaultValues: {
+      amount: undefined,
+      recipient: '',
+      description: '',
+    },
+  });
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  async function onSubmit(values: TransferFormValues) {
     setSuccessMessage('');
-
-    const errs = validate();
-    if (Object.keys(errs).length > 0) {
-      setErrors(errs);
-      return;
-    }
-    setErrors({});
-    setSubmitting(true);
+    clearErrors('root.server');
 
     try {
       const res = await fetch('/api/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: parseFloat(amount),
-          recipient: recipient.trim(),
-          description: description.trim(),
+          amount: values.amount,
+          recipient: values.recipient.trim(),
+          description: values.description.trim(),
         }),
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        setErrors({ amount: data.error ?? 'Transfer failed. Please try again.' });
+        const data = await res.json().catch(() => null);
+        setError('root.server', {
+          type: 'server',
+          message: data?.error ?? 'Transfer failed. Please try again.',
+        });
         return;
       }
 
       const newTransaction: Transaction = await res.json();
       onTransactionAdded(newTransaction);
-      setAmount('');
-      setRecipient('');
-      setDescription('');
+      reset();
       setSuccessMessage('Transfer completed successfully!');
-      setTimeout(() => setSuccessMessage(''), 4000);
+
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+      successTimeoutRef.current = setTimeout(() => setSuccessMessage(''), 4000);
     } catch {
-      setErrors({ amount: 'Network error. Please try again.' });
-    } finally {
-      setSubmitting(false);
+      setError('root.server', {
+        type: 'network',
+        message: 'Network error. Please try again.',
+      });
     }
   }
 
@@ -82,7 +101,7 @@ export default function TransferForm({ onTransactionAdded }: TransferFormProps) 
       </h2>
 
       <form
-        onSubmit={handleSubmit}
+        onSubmit={handleSubmit(onSubmit)}
         noValidate
         className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"
       >
@@ -105,11 +124,9 @@ export default function TransferForm({ onTransactionAdded }: TransferFormProps) 
                 min="0.01"
                 step="0.01"
                 placeholder="0.00"
-                value={amount}
-                onChange={(e) => {
-                  setAmount(e.target.value);
-                  if (errors.amount) setErrors((prev) => ({ ...prev, amount: undefined }));
-                }}
+                {...register('amount', {
+                  valueAsNumber: true,
+                })}
                 aria-describedby={errors.amount ? 'amount-error' : undefined}
                 aria-invalid={!!errors.amount}
                 className={`w-full rounded-lg border py-2.5 pl-8 pr-3 text-sm text-slate-800 placeholder-slate-400 outline-none transition-colors focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-500 ${
@@ -121,7 +138,7 @@ export default function TransferForm({ onTransactionAdded }: TransferFormProps) 
             </div>
             {errors.amount && (
               <p id="amount-error" role="alert" className="text-xs text-red-500">
-                {errors.amount}
+                {errors.amount.message}
               </p>
             )}
           </div>
@@ -138,12 +155,7 @@ export default function TransferForm({ onTransactionAdded }: TransferFormProps) 
               id="recipient"
               type="text"
               placeholder="e.g. John Doe"
-              value={recipient}
-              onChange={(e) => {
-                setRecipient(e.target.value);
-                if (errors.recipient)
-                  setErrors((prev) => ({ ...prev, recipient: undefined }));
-              }}
+              {...register('recipient')}
               aria-describedby={errors.recipient ? 'recipient-error' : undefined}
               aria-invalid={!!errors.recipient}
               className={`w-full rounded-lg border py-2.5 px-3 text-sm text-slate-800 placeholder-slate-400 outline-none transition-colors focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-500 ${
@@ -154,7 +166,7 @@ export default function TransferForm({ onTransactionAdded }: TransferFormProps) 
             />
             {errors.recipient && (
               <p id="recipient-error" role="alert" className="text-xs text-red-500">
-                {errors.recipient}
+                {errors.recipient.message}
               </p>
             )}
           </div>
@@ -172,11 +184,20 @@ export default function TransferForm({ onTransactionAdded }: TransferFormProps) 
               id="description"
               type="text"
               placeholder="e.g. Dinner payment"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              {...register('description')}
               className="w-full rounded-lg border border-slate-200 py-2.5 px-3 text-sm text-slate-800 placeholder-slate-400 outline-none transition-colors focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-500"
             />
           </div>
+
+          {/* Error message */}
+          {errors.root?.server?.message && (
+            <p
+              role="alert"
+              className="rounded-lg bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400"
+            >
+              {errors.root.server.message}
+            </p>
+          )}
 
           {/* Success message */}
           {successMessage && (
@@ -188,10 +209,10 @@ export default function TransferForm({ onTransactionAdded }: TransferFormProps) 
           {/* Submit */}
           <button
             type="submit"
-            disabled={submitting}
+            disabled={isSubmitting}
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-600"
           >
-            {submitting ? (
+            {isSubmitting ? (
               <>
                 <Spinner />
                 Processing…
